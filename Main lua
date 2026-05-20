@@ -1,0 +1,180 @@
+require "import"
+import "android.widget.*"
+import "android.view.View"
+import "android.graphics.*"
+import "android.os.*"
+import "java.io.File"
+import "java.io.FileOutputStream"
+import "android.graphics.Bitmap$CompressFormat"
+import "android.text.InputType"
+import "android.content.Context"
+import "android.content.DialogInterface"
+import "android.content.Intent"
+import "android.net.Uri"
+
+local ctx = activity or service
+local telegramUrl = "https://t.me/akmodsofficial"
+
+local colors = {
+Red = 0xFFFF0000, Green = 0xFF00FF00, Blue = 0xFF0000FF,
+Black = 0xFF000000, White = 0xFFFFFFFF, Yellow = 0xFFFFFF00,
+Cyan = 0xFF00FFFF, Magenta = 0xFFFF00FF, Gray = 0xFF888888, Orange = 0xFFFFA500
+}
+
+local colorNames, imageFormats = {}, {"PNG", "JPEG", "WEBP"}
+for k in pairs(colors) do table.insert(colorNames, k) end
+table.sort(colorNames)
+
+local textPositions = {"Top", "Center", "Bottom", "Right Bottom", "Left Bottom"}
+
+local layout = {
+ScrollView,
+layout_width = "fill", layout_height = "fill",
+{
+LinearLayout,
+orientation = "vertical", padding = "16dp",
+layout_width = "match_parent", layout_height = "wrap_content",
+{ EditText, id = "inputText", hint = "Enter your text", layout_width = "match_parent", layout_height = "wrap_content", minLines = 4, inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE },
+{ TextView, text = "Text Color:", layout_marginTop = "8dp" },
+{ Spinner, id = "textColorSpinner", layout_width = "match_parent" },
+{ TextView, text = "Background Color:", layout_marginTop = "8dp" },
+{ Spinner, id = "bgColorSpinner", layout_width = "match_parent" },
+{ TextView, text = "Text Size:", layout_marginTop = "8dp" },
+{ SeekBar, id = "textSizeSeek", layout_width = "match_parent", max = 100, progress = 40 },
+{ TextView, text = "Text Position:", layout_marginTop = "8dp" },
+{ Spinner, id = "textPositionSpinner", layout_width = "match_parent" },
+{ CheckBox, id = "shadowCheck", text = "Enable Shadow", layout_marginTop = "8dp" },
+{ EditText, id = "captionText", hint = "Caption (optional)", layout_width = "match_parent" },
+{ EditText, id = "footerText", hint = "Footer (optional)", layout_width = "match_parent" },
+{ EditText, id = "watermarkText", hint = "Watermark (optional)", layout_width = "match_parent" },
+{ TextView, text = "Image Format:", layout_marginTop = "8dp" },
+{ Spinner, id = "formatSpinner", layout_width = "match_parent" },
+{ Button, id = "btnConvert", text = "Convert to Image", layout_marginTop = "16dp" },
+{ ImageView, id = "imageView", layout_width = "match_parent", layout_height = "200dp", scaleType = "fitCenter", layout_marginTop = "16dp" }
+}
+}
+
+if service then
+dlg = LuaDialog(service)
+dlg.setTitle("Text to Image Converter")
+dlg.setView(loadlayout(layout))
+else
+activity.setContentView(loadlayout(layout))
+end
+
+textColorSpinner.setAdapter(ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, String(colorNames)))
+bgColorSpinner.setAdapter(ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, String(colorNames)))
+formatSpinner.setAdapter(ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, String(imageFormats)))
+textPositionSpinner.setAdapter(ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, String(textPositions)))
+
+local ClickHandlers = {}
+
+ClickHandlers["A.K Mods"] = function()
+local text = tostring(inputText.getText())
+if text == "" then Toast.makeText(ctx, "Enter some text.", Toast.LENGTH_SHORT).show() return end
+
+local caption = tostring(captionText.getText() or "")
+local footer = tostring(footerText.getText() or "")
+local watermark = tostring(watermarkText.getText() or "")
+local textColor = colors[tostring(textColorSpinner.getSelectedItem())]
+local bgColor = colors[tostring(bgColorSpinner.getSelectedItem())]
+local formatName = tostring(formatSpinner.getSelectedItem())
+local textPosition = tostring(textPositionSpinner.getSelectedItem())
+local textSize = textSizeSeek.getProgress()
+if textSize < 10 then textSize = 10 end
+
+local paint = Paint()
+paint.setAntiAlias(true)
+paint.setTextSize(textSize)
+paint.setColor(textColor)
+
+if shadowCheck.isChecked() then
+paint.setShadowLayer(4, 2, 2, 0xFF000000)
+end
+
+local lines, width = {}, 800
+for line in string.gmatch(text, "[^\r\n]+") do table.insert(lines, line) end
+if caption ~= "" then table.insert(lines, 1, caption) end
+if footer ~= "" then table.insert(lines, footer) end
+local lineHeight = textSize + 20
+local height = #lines * lineHeight + 80
+
+local bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+local canvas = Canvas(bmp)
+canvas.drawColor(bgColor)
+
+local yStart = 0
+if textPosition == "Top" then
+yStart = lineHeight
+elseif textPosition == "Center" then
+yStart = (height - (#lines * lineHeight)) / 2
+elseif textPosition == "Bottom" then
+yStart = height - (#lines * lineHeight)
+elseif textPosition == "Right Bottom" or textPosition == "Left Bottom" then
+yStart = height - (#lines * lineHeight)
+end
+
+for i, line in ipairs(lines) do
+local x = 20
+if textPosition == "Center" then
+x = (width - paint.measureText(line)) / 2
+elseif textPosition == "Right Bottom" then
+x = width - paint.measureText(line) - 20
+end
+canvas.drawText(line, x, yStart + i * lineHeight, paint)
+end
+
+if watermark ~= "" then
+local wmPaint = Paint(paint)
+wmPaint.setTextSize(20)
+wmPaint.setColor(0x66000000)
+canvas.drawText(watermark, width - wmPaint.measureText(watermark) - 10, height - 10, wmPaint)
+end
+
+imageView.setImageBitmap(bmp)
+
+local compressFormat = Bitmap.CompressFormat.PNG
+local ext = ".png"
+if formatName == "JPEG" then
+compressFormat = Bitmap.CompressFormat.JPEG
+ext = ".jpg"
+elseif formatName == "WEBP" then
+compressFormat = Bitmap.CompressFormat.WEBP
+ext = ".webp"
+end
+
+local dir = File("/sdcard/TextImages")
+if not dir.exists() then dir.mkdirs() end
+
+local filename = "TextImage_" .. os.time() .. ext
+local file = File(dir, filename)
+local out = FileOutputStream(file)
+bmp.compress(compressFormat, 100, out)
+out.flush()
+out.close()
+
+Toast.makeText(ctx, "Saved to: /sdcard/TextImages/"..filename, Toast.LENGTH_LONG).show()
+end
+
+btnConvert.onClick = ClickHandlers["A.K Mods"]
+
+local DialogHandlers = {}
+
+DialogHandlers["A.K Mods"] = function()
+if dlg then dlg.show() end
+end
+
+local TelegramHandlers = {}
+
+TelegramHandlers["A.K Mods"] = function()
+local intent = Intent(Intent.ACTION_VIEW)
+intent.setData(Uri.parse(telegramUrl))
+ctx.startActivity(intent)
+end
+
+local welcomeDialog = LuaDialog(ctx)
+welcomeDialog.setTitle("Welcome!")
+welcomeDialog.setMessage("Hi!\nThis tool is developed by: A.K Mods")
+welcomeDialog.setButton(DialogInterface.BUTTON_POSITIVE, "OK", DialogHandlers["A.K Mods"])
+welcomeDialog.setButton(DialogInterface.BUTTON_NEUTRAL, "Join Telegram", TelegramHandlers["A.K Mods"])
+welcomeDialog.show()
